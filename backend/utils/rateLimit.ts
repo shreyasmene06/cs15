@@ -14,22 +14,22 @@
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
 import { type Request, type Response } from 'express';
+import { logger } from './logger.js';
 
 // ─── Shared key extractors ────────────────────────────────────────────────────
 
 /** Extract user ID from JWT in Authorization header, fall back to client IP. */
 function userOrIp(req: Request): string {
   const auth = req.headers.authorization;
-
   if (auth?.startsWith('Bearer ')) {
     try {
       const decoded = jwt.verify(auth.slice(7), process.env.JWT_SECRET!) as { id: string };
       return `uid:${decoded.id}`;
-    } catch {
+    } catch (err) {
+      logger.warn(`[rateLimit] JWT verification failed for rate limiting key: ${(err as Error).message}`);
       /* fall through to IP */
     }
   }
-
   return `ip:${ipKeyGenerator(req.ip ?? 'unknown')}`;
 }
 
@@ -44,10 +44,8 @@ interface LimiterConfig {
   windowMs: number;
   max: number;
   keyPrefix?: string;
-
   /** Receives (req, res) — second param is required by express-rate-limit's interface */
   keyFn?: (req: Request, res: Response) => string;
-
   message?: string;
 }
 
@@ -55,15 +53,12 @@ export function createIdentityLimiter(config: LimiterConfig) {
   return rateLimit({
     windowMs: config.windowMs,
     max: config.max,
-
     keyGenerator: (req: Request, _res: Response): string => {
       const k = config.keyFn ? config.keyFn(req, _res) : userOrIp(req);
       return k ?? 'unknown';
     },
-
     standardHeaders: true,
     legacyHeaders: false,
-
     message: config.message ?? 'Too many requests, please try again later.',
   });
 }
