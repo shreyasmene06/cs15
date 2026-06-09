@@ -84,4 +84,4 @@ See [docs/ARCHITECTURE.md#10-env-variables-reference](docs/ARCHITECTURE.md#10-en
 
 ## License
 
-Private / internal use.
+[MIT](./LICENSE) © 2026 vicharanashala
