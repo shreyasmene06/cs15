@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Types } from 'mongoose';
 import FAQ, { IFAQ } from '../models/FAQ.js';
 import User, { IUser } from '../models/User.js';
 import SearchLog from '../models/SearchLog.js';
@@ -219,10 +220,12 @@ export const getAdminFAQs = async (req: Request, res: Response): Promise<void> =
     const category = (req.query.category as string) || '';
     const search = (req.query.search as string) || '';
     const sort = (req.query.sort as string) || '-createdAt';
+    const batchId = (req.query.batchId as string) || '';
 
     const query: Record<string, unknown> = {};
     if (status) query.status = status;
     if (category) query.category = category;
+    if (batchId && Types.ObjectId.isValid(batchId)) query.batchId = batchId;
     if (search)
       query.$or = [
         { question: { $regex: escapeRegex(search), $options: 'i' } },

@@ -23,6 +23,7 @@ const NAV: NavGroup[] = [
     label: 'Content',
     items: [
       { to: '/admin/faqs',           label: 'FAQs',          icon: DocIcon },
+      { to: '/admin/batches',        label: 'Programs',      icon: LayersIcon },
       { to: '/admin/faqs/review',    label: 'FAQ Review',    icon: ShieldCheckIcon },
       { to: '/admin/auto-answer',    label: 'AI Answers',    icon: SparkleIcon },
       { to: '/admin/faq-audit',     label: 'FAQ Audit',     icon: StethoscopeIcon },
@@ -66,6 +67,7 @@ function BrainIcon() { return <svg width="15" height="15" viewBox="0 0 24 24" fi
 function ShieldCheckIcon() { return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>; }
 function StethoscopeIcon() { return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M6 18H4a2 2 0 0 1-2-2v-1h20v1a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a6 6 0 0 1 12 0v6"/><circle cx="12" cy="18" r="3"/></svg>; }
 function SparkleIcon()   { return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5L12 3z"/><path d="M19 15l1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3z"/></svg>; }
+function LayersIcon()    { return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>; }
 function LogoutIcon() { return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>; }
 
 function SidebarContent({ onMobileClose }: { onMobileClose: () => void }) {

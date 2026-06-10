@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { AuthModalProvider, useAuthModal } from './context/AuthModalContext';
+import { BatchProvider } from './context/BatchContext';
 import AuthModal from './components/auth/AuthModal';
 import Spinner from './components/ui/Spinner';
 import AskAIButton from './components/askai/AskAIButton';
@@ -13,6 +14,8 @@ const FAQPage = lazy(() => import('./pages/FAQPage'));
 const CommunityPage = lazy(() => import('./pages/CommunityPage'));
 const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
 const SavedKnowledgePage = lazy(() => import('./pages/SavedKnowledgePage'));
+const ExplorePage = lazy(() => import('./pages/ExplorePage'));
+const BatchPortalPage = lazy(() => import('./pages/BatchPortalPage'));
 
 // Admin pages
 const AdminLogin = lazy(() => import('./admin/pages/AdminLogin'));
@@ -30,6 +33,7 @@ const AdminAISettings = lazy(() => import('./admin/pages/AdminAISettings'));
 const FaqReview = lazy(() => import('./admin/pages/FaqReview'));
 const AdminAutoAnswerQueue = lazy(() => import('./admin/pages/AdminAutoAnswerQueue'));
 const AdminFAQAudit = lazy(() => import('./admin/pages/AdminFAQAudit'));
+const AdminBatches = lazy(() => import('./admin/pages/AdminBatches'));
 const AdminLayout = lazy(() => import('./admin/components/layout/AdminLayout'));
 
 interface AccountRouteProps {
@@ -93,8 +97,12 @@ function AppRoutes() {
   return (
     <>
       <Routes>
-        {/* Public content routes — anonymous users can browse freely */}
-        <Route path="/" element={<HomePage />} />
+        {/* The public FAQ discovery page is now the base URL — anyone
+            landing on the site gets the no-auth, anonymous-analytics
+            experience. The legacy "home" page lives at /home. */}
+        <Route path="/" element={<ExplorePage />} />
+        <Route path="/home" element={<HomePage />} />
+        <Route path="/explore/select" element={<BatchPortalPage />} />
         <Route path="/faq" element={<FAQPage />} />
         <Route path="/faq/:id" element={<FAQPage />} />
         <Route path="/community" element={<CommunityPage />} />
@@ -127,6 +135,7 @@ function AppRoutes() {
         <Route path="/admin/faqs/review" element={<AdminRoute><AdminLayout><FaqReview /></AdminLayout></AdminRoute>} />
         <Route path="/admin/auto-answer" element={<AdminRoute><AdminLayout><AdminAutoAnswerQueue /></AdminLayout></AdminRoute>} />
         <Route path="/admin/faq-audit" element={<AdminRoute><AdminLayout><AdminFAQAudit /></AdminLayout></AdminRoute>} />
+        <Route path="/admin/batches" element={<AdminRoute><AdminLayout><AdminBatches /></AdminLayout></AdminRoute>} />
 
         {/* Catch-all fallback: redirect any unknown URL to home */}
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -169,8 +178,18 @@ const FIRST_VISIT_PROMPT_KEY = 'yaksha_first_visit_prompt_seen';
 function FirstVisitAuthPrompt() {
   const { isOpen } = useAuthModal();
   const { isAuthenticated, loading } = useAuth();
+  const { pathname } = useLocation();
 
   useEffect(() => {
+    // The public FAQ discovery page is at "/" — no auth prompt there.
+    // The legacy /home and /explore paths (if any) also bypass it.
+    if (
+      pathname === '/' ||
+      pathname.startsWith('/explore') ||
+      pathname.startsWith('/home')
+    ) {
+      return;
+    }
     if (loading) return;             // wait for the initial auth check
     if (isAuthenticated) return;    // signed-in users don't need a welcome prompt
     if (typeof window === 'undefined') return;
@@ -194,7 +213,7 @@ function FirstVisitAuthPrompt() {
     }, 1200);
 
     return () => window.clearTimeout(timer);
-  }, [loading, isAuthenticated]);
+  }, [loading, isAuthenticated, pathname]);
 
   // No-op render — this component is purely a side-effect host.
   void isOpen;
@@ -206,11 +225,13 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AuthModalHost>
-          <Suspense fallback={<div className="min-h-screen bg-bg flex items-center justify-center"><Spinner size="md" /></div>}>
-            <AppRoutes />
-          </Suspense>
-        </AuthModalHost>
+        <BatchProvider>
+          <AuthModalHost>
+            <Suspense fallback={<div className="min-h-screen bg-bg flex items-center justify-center"><Spinner size="md" /></div>}>
+              <AppRoutes />
+            </Suspense>
+          </AuthModalHost>
+        </BatchProvider>
       </AuthProvider>
     </BrowserRouter>
   );

@@ -29,10 +29,13 @@ export const updateProfileSchema = z.object({
 });
 
 // ─── FAQ ────────────────────────────────────────────────────────────────────────
+const objectIdLike = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid ObjectId');
+
 export const createFAQSchema = z.object({
   question:           z.string().min(3, 'Question is too short').max(500),
   answer:             z.string().min(3, 'Answer is too short').max(10000),
   category:           z.string().min(1, 'Category is required').max(100),
+  batchId:            objectIdLike,
   freshnessTier:      z.enum(['evergreen', 'seasonal', 'volatile']).optional(),
   reviewIntervalDays: z.number().int().min(0).max(365).optional(),
 });
@@ -41,6 +44,8 @@ export const updateFAQSchema = z.object({
   question:           z.string().min(3).max(500).optional(),
   answer:             z.string().min(3).max(10000).optional(),
   category:           z.string().min(1).max(100).optional(),
+  batchId:            objectIdLike.optional(),
+  status:             z.enum(['approved', 'pending', 'rejected']).optional(),
   freshnessTier:      z.enum(['evergreen', 'seasonal', 'volatile']).optional(),
   reviewIntervalDays: z.number().int().min(0).max(365).optional(),
 });

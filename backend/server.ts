@@ -22,6 +22,8 @@ import zoomRoutes from './routes/zoom.js';
 import knowledgeRoutes from './routes/knowledge.js';
 import askAiRoutes from './routes/askAi.js';
 import uploadRoutes from './routes/upload.js';
+import publicFaqRoutes from './routes/publicFaq.js';
+import batchRoutes from './routes/batch.js';
 import { ingestFrontendLog } from './utils/fileLogger.js';
 import { logger } from './utils/logger.js';
 import { requestLogger } from './utils/requestLogger.js';
@@ -36,6 +38,7 @@ import { runWithContext } from './utils/requestContext.js';
 import { flushSearchLogs } from './controllers/searchController.js';
 import { jobQueue } from './utils/jobQueue.js';
 import { getCloudinaryConfig } from './utils/cloudinary.js';
+import { recomputePopularity } from './controllers/publicFaqController.js';
 import * as Sentry from '@sentry/node';
 import { expressIntegration } from '@sentry/node';
 
@@ -121,6 +124,24 @@ app.use(morgan('dev')); // Logs incoming HTTP requests to the console
 // 4. Body Parsing
 app.use(express.json()); // Parses incoming JSON payloads in the request body
 
+// 4b. Minimal cookie parser — only needed for the public FAQ page's
+// guest-id cookie. Avoids adding cookie-parser as a runtime dep.
+app.use((req: Request, _res: Response, next: (e?: unknown) => void) => {
+  const header = req.headers.cookie;
+  if (!header) { next(); return; }
+  const jar: Record<string, string> = {};
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq < 0) continue;
+    const k = part.slice(0, eq).trim();
+    const v = part.slice(eq + 1).trim();
+    if (!k) continue;
+    try { jar[k] = decodeURIComponent(v); } catch { /* malformed — skip */ }
+  }
+  (req as Request & { cookies: Record<string, string> }).cookies = jar;
+  next();
+});
+
 // Route to receive frontend logs and write them to main_log.txt
 app.post('/api/log', ingestFrontendLog);
 
@@ -141,6 +162,8 @@ app.use('/api/zoom', zoomRoutes);
 app.use('/api/knowledge', knowledgeRoutes);
 app.use('/api/ask-ai', askAiRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/public', publicFaqRoutes);
+app.use('/api/batches', batchRoutes);
 
 // 6. Health Check Endpoint
 // Useful for deployment platforms (like Vercel/AWS) to verify the server is alive
@@ -300,6 +323,19 @@ if (process.env.NODE_ENV !== 'production') {
     const freshnessInterval = setInterval(() => runFreshnessCheck().catch((e: Error) => logger.error(`Freshness check: ${e.message}`)), 24 * 60 * 60 * 1000);
     runFreshnessCheck().catch((e: Error) => logger.error(`Initial freshness check: ${e.message}`));
 
+    // Public FAQ popularity recompute — every 5 min, idempotent. Aggregates
+    // GuestEvent metrics into the FAQ document and re-derives popularityScore
+    // for any FAQ whose score is older than the tick.
+    const PUBLIC_RECOMPUTE_MS = 5 * 60 * 1000;
+    const popularityInterval = setInterval(() => {
+      recomputePopularity().catch((e: Error) => logger.error(`[publicFaq] recompute: ${e.message}`));
+    }, PUBLIC_RECOMPUTE_MS);
+    // First pass 15s after boot — let MongoDB connect, don't fight the
+    // initial auto-answer / promotion cycles.
+    setTimeout(() => {
+      recomputePopularity().catch((e: Error) => logger.error(`[publicFaq] initial recompute: ${e.message}`));
+    }, 15_000);
+
     // Daily retention policy — cleans old SearchLog, Notification, FreshReviewLog, ModerationLog, AdminLog records
     const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
     const runRetention = async () => {
@@ -329,6 +365,7 @@ if (process.env.NODE_ENV !== 'production') {
       clearInterval(freshnessInterval);
       clearInterval(retentionInterval);
       clearInterval(retryInterval);
+      clearInterval(popularityInterval);
       stopEscalationScheduler();
       stopAutoAnswerScheduler();
       stopFAQAuditScheduler();
