@@ -27,7 +27,11 @@ import CommunityPost from '../models/CommunityPost.js';
 import FAQ from '../models/FAQ.js';
 import { TranscriptKnowledge } from '../models/TranscriptKnowledge.js';
 import Notification from '../models/Notification.js';
-import { logger } from '../utils/http/logger.js';
+// L1 fix (v1.68): use the named `cronLog` for the auto-answer
+// scheduler + manual trigger so every line carries the [cron]
+// category tag (grep filter). 28 bare `logger` calls
+// converted in one pass — every one was a cron/AI event.
+import { cronLog } from '../utils/http/logger.js';
 import { searchKnowledge, searchRelevantFaqs, searchRelevantCommunityPosts } from '../services/knowledgeBase.js';
 import { chatWithConfig, getPipelineProviderConfig } from '../utils/ai/aiProvider.js';
 import { PipelineResult } from '../models/PipelineResult.js';
@@ -85,15 +89,15 @@ async function findBestAnswer(postTitle: string, postBody: string): Promise<Answ
   const [kbRaw, faqMatches, communityMatches] = await Promise.all([
     // Knowledge base — already circuit-breaker safe via searchKnowledgeWithFallback
     searchKnowledgeWithFallback(queryText, 3).catch((err): null => {
-      logger.warn(`[autoAnswer] Knowledge base search failed: ${(err as Error).message}`);
+      cronLog.warn(`[autoAnswer] Knowledge base search failed: ${(err as Error).message}`);
       return null;
     }),
     searchRelevantFaqs(queryText, 3).catch((err): Awaited<ReturnType<typeof searchRelevantFaqs>> => {
-      logger.warn(`[autoAnswer] FAQ search failed: ${(err as Error).message}`);
+      cronLog.warn(`[autoAnswer] FAQ search failed: ${(err as Error).message}`);
       return [];
     }),
     searchRelevantCommunityPosts(queryText, 3).catch((err): Awaited<ReturnType<typeof searchRelevantCommunityPosts>> => {
-      logger.warn(`[autoAnswer] Community search failed: ${(err as Error).message}`);
+      cronLog.warn(`[autoAnswer] Community search failed: ${(err as Error).message}`);
       return [];
     }),
   ]);
@@ -106,7 +110,7 @@ async function findBestAnswer(postTitle: string, postBody: string): Promise<Answ
     const top = kbMatches[0];
     const confidence = Math.min((top.score ?? 0.7) * 1.1, 0.95);
     if (confidence >= SUGGEST_THRESHOLD) {
-      logger.info(`[autoAnswer] KB match for "${postTitle.slice(0, 40)}": conf=${confidence.toFixed(2)}`);
+      cronLog.info(`[autoAnswer] KB match for "${postTitle.slice(0, 40)}": conf=${confidence.toFixed(2)}`);
       best = {
         answer: top.answer.slice(0, MAX_ANSWER_CHARS),
         confidence: Math.round(confidence * 100) / 100,
@@ -123,7 +127,7 @@ async function findBestAnswer(postTitle: string, postBody: string): Promise<Answ
     // FAQ vector scores are typically 0.4-0.85; remap to a more usable range.
     const confidence = Math.min(top.score * 0.95, 0.93);
     if (confidence >= SUGGEST_THRESHOLD && (!best || confidence > best.confidence)) {
-      logger.info(`[autoAnswer] FAQ match for "${postTitle.slice(0, 40)}": conf=${confidence.toFixed(2)}`);
+      cronLog.info(`[autoAnswer] FAQ match for "${postTitle.slice(0, 40)}": conf=${confidence.toFixed(2)}`);
       best = {
         answer: top.answer.slice(0, MAX_ANSWER_CHARS),
         confidence: Math.round(confidence * 100) / 100,
@@ -139,7 +143,7 @@ async function findBestAnswer(postTitle: string, postBody: string): Promise<Answ
     const top = communityMatches[0];
     const confidence = Math.min(top.score * 0.9, 0.90);
     if (confidence >= SUGGEST_THRESHOLD && (!best || confidence > best.confidence)) {
-      logger.info(`[autoAnswer] Community match for "${postTitle.slice(0, 40)}": conf=${confidence.toFixed(2)}`);
+      cronLog.info(`[autoAnswer] Community match for "${postTitle.slice(0, 40)}": conf=${confidence.toFixed(2)}`);
       best = {
         answer: top.answer.slice(0, MAX_ANSWER_CHARS),
         confidence: Math.round(confidence * 100) / 100,
@@ -215,7 +219,7 @@ async function findBestAnswer(postTitle: string, postBody: string): Promise<Answ
       };
     }
   } catch (err) {
-    logger.warn(`[autoAnswer] AI generation failed: ${(err as Error).message}`);
+    cronLog.warn(`[autoAnswer] AI generation failed: ${(err as Error).message}`);
   }
 
   // Return the best direct match even if it's below APPROVE — caller decides
@@ -230,7 +234,7 @@ async function processPost(post: InstanceType<typeof CommunityPost>): Promise<vo
 
   // Skip if already answered
   if (post.status === 'answered') {
-    logger.info(`[autoAnswer] Skipping already-answered post ${post._id}`);
+    cronLog.info(`[autoAnswer] Skipping already-answered post ${post._id}`);
     return;
   }
 
@@ -266,7 +270,7 @@ async function processPost(post: InstanceType<typeof CommunityPost>): Promise<vo
         }
       );
       await logResult(post, { verdict: 'escalated', confidence: 0, reason: 'No relevant answer found' }, escalatedAt);
-      logger.info(`[autoAnswer] Escalated (no match): ${postTitle.slice(0, 40)}`);
+      cronLog.info(`[autoAnswer] Escalated (no match): ${postTitle.slice(0, 40)}`);
       return;
     }
 
@@ -288,7 +292,7 @@ async function processPost(post: InstanceType<typeof CommunityPost>): Promise<vo
         }
       );
       await logResult(post, { verdict: 'escalated', confidence, reason: 'Sensitive topic' }, escalatedAt);
-      logger.info(`[autoAnswer] Escalated (sensitive): ${postTitle.slice(0, 40)}`);
+      cronLog.info(`[autoAnswer] Escalated (sensitive): ${postTitle.slice(0, 40)}`);
       return;
     }
 
@@ -332,7 +336,7 @@ async function processPost(post: InstanceType<typeof CommunityPost>): Promise<vo
       });
 
       await logResult(post, { verdict: 'approved', confidence, reason: `Auto-answered from ${source}` }, new Date());
-      logger.info(`[autoAnswer] Auto-approved (conf=${confidence}): ${postTitle.slice(0, 40)}`);
+      cronLog.info(`[autoAnswer] Auto-approved (conf=${confidence}): ${postTitle.slice(0, 40)}`);
     } else {
       // Suggest for admin review
       await CommunityPost.updateOne(
@@ -346,7 +350,7 @@ async function processPost(post: InstanceType<typeof CommunityPost>): Promise<vo
         }
       );
       await logResult(post, { verdict: 'suggested', confidence, reason: `Queued for admin review — source: ${source}` }, new Date());
-      logger.info(`[autoAnswer] Suggested (conf=${confidence}): ${postTitle.slice(0, 40)}`);
+      cronLog.info(`[autoAnswer] Suggested (conf=${confidence}): ${postTitle.slice(0, 40)}`);
     }
   }
 
@@ -397,7 +401,7 @@ export const getAutoAnswerQueue = async (_req: Request, res: Response): Promise<
       },
     });
   } catch (err) {
-    logger.error(`[autoAnswer] Queue fetch failed: ${(err as Error).message}`);
+    cronLog.error(`[autoAnswer] Queue fetch failed: ${(err as Error).message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -461,7 +465,7 @@ export const reviewAutoAnswer = async (req: Request, res: Response): Promise<voi
         content: `Your question "${post.title.slice(0, 80)}" has been answered!`,
       });
 
-      logger.info(`[autoAnswer] Admin approved answer for post ${postId}`);
+      cronLog.info(`[autoAnswer] Admin approved answer for post ${postId}`);
       res.json({ message: 'Answer approved and posted', status: 'answered' });
     } else if (action === 'reject') {
       await CommunityPost.updateOne(
@@ -475,7 +479,7 @@ export const reviewAutoAnswer = async (req: Request, res: Response): Promise<voi
           aiAnswerReviewedBy: req.user!._id,
         }
       );
-      logger.info(`[autoAnswer] Admin rejected AI answer for post ${postId}`);
+      cronLog.info(`[autoAnswer] Admin rejected AI answer for post ${postId}`);
       res.json({ message: 'AI answer rejected', status: 'rejected' });
     } else if (action === 'escalate') {
       await CommunityPost.updateOne(
@@ -492,7 +496,7 @@ export const reviewAutoAnswer = async (req: Request, res: Response): Promise<voi
       res.status(400).json({ message: 'Invalid action' });
     }
   } catch (err) {
-    logger.error(`[autoAnswer] Review failed: ${(err as Error).message}`);
+    cronLog.error(`[autoAnswer] Review failed: ${(err as Error).message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -558,17 +562,17 @@ export const runAutoAnswer = async (req: Request, res: Response): Promise<void> 
         if (newStatus === 'approved') results.auto_approved++;
         else if (newStatus === 'suggested') results.suggested++;
         else if (newStatus === 'escalated' || newStatus === 'pending') results.escalated++;
-        logger.info(`[autoAnswer] Processed post ${post._id}: ${prevStatus ?? 'null'} → ${newStatus}`);
+        cronLog.info(`[autoAnswer] Processed post ${post._id}: ${prevStatus ?? 'null'} → ${newStatus}`);
       } catch (err) {
         results.errors++;
-        logger.error(`[autoAnswer] Error processing post ${post._id}: ${(err as Error).message}`);
+        cronLog.error(`[autoAnswer] Error processing post ${post._id}: ${(err as Error).message}`);
       }
     }
 
-    logger.info(`[autoAnswer] Run complete: ${JSON.stringify(results)}`);
+    cronLog.info(`[autoAnswer] Run complete: ${JSON.stringify(results)}`);
     res.json({ message: 'Auto-answer run complete', ...results });
   } catch (err) {
-    logger.error(`[autoAnswer] Run failed: ${(err as Error).message}`);
+    cronLog.error(`[autoAnswer] Run failed: ${(err as Error).message}`);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -585,16 +589,16 @@ export async function runScheduledAutoAnswer(): Promise<void> {
 
   autoAnswerIntervalHandle = setInterval(() => {
     runAutoAnswerInternal().catch((err) => {
-      logger.error(`[autoAnswer] Scheduler error: ${(err as Error).message}`);
+      cronLog.error(`[autoAnswer] Scheduler error: ${(err as Error).message}`);
     });
   }, ms);
 
-  logger.info(`[autoAnswer] Scheduler started — running every ${CHECK_INTERVAL_H}h`);
+  cronLog.info(`[autoAnswer] Scheduler started — running every ${CHECK_INTERVAL_H}h`);
 
   // Also run once on startup (with a delay to let the server warm up)
   setTimeout(() => {
     runAutoAnswerInternal().catch((err) => {
-      logger.error(`[autoAnswer] Startup run error: ${(err as Error).message}`);
+      cronLog.error(`[autoAnswer] Startup run error: ${(err as Error).message}`);
     });
   }, 30_000);
 }
@@ -603,7 +607,7 @@ export function stopAutoAnswerScheduler(): void {
   if (autoAnswerIntervalHandle) {
     clearInterval(autoAnswerIntervalHandle);
     autoAnswerIntervalHandle = null;
-    logger.info('[autoAnswer] Scheduler stopped.');
+    cronLog.info('[autoAnswer] Scheduler stopped.');
   }
 }
 
@@ -622,11 +626,11 @@ async function runAutoAnswerInternal(): Promise<void> {
     .limit(BATCH_SIZE);
 
   if (posts.length === 0) {
-    logger.info('[autoAnswer] No eligible posts for auto-answering.');
+    cronLog.info('[autoAnswer] No eligible posts for auto-answering.');
     return;
   }
 
-  logger.info(`[autoAnswer] Starting scheduled run — ${posts.length} posts to process.`);
+  cronLog.info(`[autoAnswer] Starting scheduled run — ${posts.length} posts to process.`);
   const results = { processed: 0, auto_approved: 0, suggested: 0, escalated: 0, errors: 0 };
   for (const post of posts) {
     try {
@@ -638,8 +642,8 @@ async function runAutoAnswerInternal(): Promise<void> {
       else results.escalated++;
     } catch (err) {
       results.errors++;
-      logger.error(`[autoAnswer] Post ${post._id} error: ${(err as Error).message}`);
+      cronLog.error(`[autoAnswer] Post ${post._id} error: ${(err as Error).message}`);
     }
   }
-  logger.info(`[autoAnswer] Scheduled run complete: ${JSON.stringify(results)}`);
+  cronLog.info(`[autoAnswer] Scheduled run complete: ${JSON.stringify(results)}`);
 }
