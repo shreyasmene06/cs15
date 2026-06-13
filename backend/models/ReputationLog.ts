@@ -32,6 +32,9 @@ const reputationLogSchema = new MongooseSchema<IReputationLog>({
 }, { timestamps: true });
 
 reputationLogSchema.index({ userId: 1, createdAt: -1 });
+// v1.68 — schema index: "show me all answer_accepted
+// events for user X" — common moderation view.
+reputationLogSchema.index({ userId: 1, action: 1, createdAt: -1 });
 reputationLogSchema.index({ userId: 1 });
 
 export default mongoose.model<IReputationLog>('ReputationLog', reputationLogSchema, 'yaksha_faq_reputation_logs');
